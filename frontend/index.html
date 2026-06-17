@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Sistem Point of Sale untuk Apotek Algenz – manajemen penjualan, stok obat, dan resep dokter." />
+    <title>POS Apotek Algenz</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      /* ── Print: show ONLY the invoice, hide everything else ── */
+      @media print {
+        body > #app          { display: none !important; }
+        #invoice-portal      { display: block !important; }
+        #invoice-print       {
+          display: block !important;
+          position: fixed;
+          top: 0; left: 0;
+          width: 80mm;          /* standard thermal width */
+          margin: 0;
+          padding: 4mm;
+          font-size: 11pt;
+          background: #fff;
+          color: #000;
+        }
+      }
+      /* Hidden by default; shown only during print */
+      #invoice-portal { display: none; }
+    </style>
+  </head>
+  <body class="bg-gray-50 font-sans antialiased">
+    <div id="app"></div>
+    <!-- Print portal: invoice is teleported here before window.print() -->
+    <div id="invoice-portal"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

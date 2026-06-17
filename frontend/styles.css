@@ -1,0 +1,74 @@
+/* frontend/styles.css */
+:root {
+  --primary-h: 170;
+  --primary-s: 70%;
+  --primary-l: 45%;
+  --bg-color: hsl(210, 15%, 10%);
+  --card-bg: rgba(255, 255, 255, 0.08);
+  --text-color: hsl(0, 0%, 90%);
+  --accent-color: hsl(var(--primary-h), var(--primary-s), var(--primary-l));
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background: var(--bg-color);
+  color: var(--text-color);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+#app {
+  width: 100%;
+  max-width: 1200px;
+  padding: 2rem;
+}
+
+.card {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+}
+
+button {
+  background: var(--accent-color);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s;
+}
+button:hover { background: hsl(var(--primary-h), var(--primary-s), calc(var(--primary-l) + 5%)); }
+button:active { transform: scale(0.98); }
+
+/* Grid layout for product list */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+.product-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Cart modal */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.modal.open { opacity: 1; pointer-events: auto; }
+.modal .card { max-width: 500px; width: 90%; }
