@@ -15,6 +15,8 @@ class Drug extends Model
         'tanggal_kadaluarsa', 'lokasi_rak', 'description', 'memerlukan_resep', 'is_active',
     ];
 
+    protected $appends = ['has_units'];
+
     protected $casts = [
         'harga_beli' => 'decimal:2',
         'harga_jual' => 'decimal:2',
@@ -41,6 +43,16 @@ class Drug extends Model
     public function batches()
     {
         return $this->hasMany(DrugBatch::class);
+    }
+
+    public function units()
+    {
+        return $this->hasMany(DrugUnit::class)->orderBy('konversi');
+    }
+
+    public function getHasUnitsAttribute(): bool
+    {
+        return $this->relationLoaded('units') ? $this->units->isNotEmpty() : $this->units()->exists();
     }
 
     public function transactionItems()

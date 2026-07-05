@@ -17,11 +17,12 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email, password) {
     loading.value = true
     try {
-      // Get CSRF cookie first (Sanctum)
-      await api.get('/sanctum/csrf-cookie', { baseURL: '' })
       const response = await api.post('/login', { email, password })
-      user.value = response.data.user
-      localStorage.setItem('pos_user', JSON.stringify(response.data.user))
+      const { token, user: userData } = response.data
+      // Store token for use in every subsequent request
+      localStorage.setItem('pos_token', token)
+      user.value = userData
+      localStorage.setItem('pos_user', JSON.stringify(userData))
       return { success: true }
     } catch (error) {
       const message = error.response?.data?.message
@@ -39,6 +40,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (_) { /* ignore */ }
     user.value = null
     localStorage.removeItem('pos_user')
+    localStorage.removeItem('pos_token')
   }
 
   async function fetchMe() {
@@ -49,6 +51,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (_) {
       user.value = null
       localStorage.removeItem('pos_user')
+      localStorage.removeItem('pos_token')
     }
   }
 

@@ -2,12 +2,18 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '@/utils/api'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
 import { formatRupiah, formatDate } from '@/utils/format'
 import { printInvoice } from '@/utils/invoice'
 
 const cart = useCartStore()
+const auth = useAuthStore()
 
-// ─── Drug catalog (always loaded, search just filters) ────────────────────────
+function windowClose() {
+  window.close()
+}
+
+// ─── Drug catalog ─────────────────────────────────────────────────────────────
 const allDrugs      = ref([])
 const loadingDrugs  = ref(true)
 const searchQuery   = ref('')
@@ -43,21 +49,127 @@ async function loadCatalog() {
 
 onMounted(loadCatalog)
 
-// ─── Cart ─────────────────────────────────────────────────────────────────────
+// ─── Cart error message ───────────────────────────────────────────────────────
 const errorMsg = ref('')
 
-function addToCart(drug) {
-  try   { cart.addItem(drug); errorMsg.value = '' }
-  catch (e) {
-    errorMsg.value = e.message
-    setTimeout(() => { errorMsg.value = '' }, 3000)
+// ─── Item Configurator Modal ───────────────────────────────────────────────────
+const showItemConfig  = ref(false)
+const configDrug      = ref(null)
+const configUnit      = ref(null)
+const configQty       = ref(1)
+const configDiskon    = ref(0)
+const isEditing       = ref(false)
+const originalUnitId  = ref(null)
+
+function openItemConfig(drug, existingItem = null) {
+  configDrug.value = drug
+  if (existingItem) {
+    configUnit.value   = existingItem.unit
+    configQty.value    = existingItem.quantity
+    configDiskon.value = existingItem.diskon || 0
+    originalUnitId.value = existingItem.unit?.id ?? null
+    isEditing.value    = true
+  } else {
+    configUnit.value   = drug.units && drug.units.length > 0 ? drug.units[0] : null
+    configQty.value    = 1
+    configDiskon.value = 0
+    originalUnitId.value = null
+    isEditing.value    = false
+  }
+  showItemConfig.value = true
+}
+
+function selectConfigUnit(unit) {
+  configUnit.value = unit
+  validateConfigQty()
+}
+
+function validateConfigQty() {
+  if (configQty.value < 1 || !configQty.value) {
+    configQty.value = 1
+  }
+  const maxStok = configDrug.value.stok
+  const konversi = configUnit.value?.konversi ?? 1
+  if (configQty.value * konversi > maxStok) {
+    configQty.value = Math.max(1, Math.floor(maxStok / konversi))
   }
 }
+
+function incConfigQty() {
+  const maxStok = configDrug.value.stok
+  const konversi = configUnit.value?.konversi ?? 1
+  if ((configQty.value + 1) * konversi <= maxStok) {
+    configQty.value++
+  }
+}
+
+function decConfigQty() {
+  if (configQty.value > 1) {
+    configQty.value--
+  }
+}
+
+function saveItemConfig() {
+  const drug = configDrug.value
+  const unit = configUnit.value
+  const qty = configQty.value
+  const diskon = Number(configDiskon.value) || 0
+
+  // Validate discount
+  const harga = unit ? Number(unit.harga_jual) : Number(drug.harga_jual)
+  if (diskon > harga * qty) {
+    errorMsg.value = 'Diskon tidak boleh melebihi subtotal!'
+    setTimeout(() => { errorMsg.value = '' }, 3000)
+    return
+  }
+
+  // Validate stock
+  const konversi = unit?.konversi ?? 1
+  const maxStok = drug.stok
+  if (qty * konversi > maxStok) {
+    errorMsg.value = `Stok tidak mencukupi! Tersisa ${Math.floor(maxStok / konversi)} satuan.`
+    setTimeout(() => { errorMsg.value = '' }, 3000)
+    return
+  }
+
+  if (isEditing.value) {
+    if (originalUnitId.value !== (unit?.id ?? null)) {
+      cart.removeItem(drug.id, originalUnitId.value)
+    }
+    const existing = cart.items.find(i => i.drug.id === drug.id && (i.unit?.id ?? null) === (unit?.id ?? null))
+    if (existing) {
+      existing.quantity = qty
+      existing.diskon = diskon
+    } else {
+      cart.addItem(drug, unit, qty)
+      cart.updateDiskon(drug.id, unit?.id ?? null, diskon)
+    }
+  } else {
+    const existing = cart.items.find(i => i.drug.id === drug.id && (i.unit?.id ?? null) === (unit?.id ?? null))
+    if (existing) {
+      existing.quantity += qty
+      existing.diskon += diskon
+    } else {
+      cart.addItem(drug, unit, qty)
+      cart.updateDiskon(drug.id, unit?.id ?? null, diskon)
+    }
+  }
+
+  showItemConfig.value = false
+  configDrug.value = null
+  configUnit.value = null
+  errorMsg.value = ''
+}
+
+function addToCart(drug) {
+  openItemConfig(drug)
+}
+
 function incQty(item) {
-  try   { cart.updateQty(item.drug.id, item.quantity + 1) }
+  try { cart.updateQty(item.drug.id, item.unit?.id ?? null, item.quantity + 1) }
   catch (e) { errorMsg.value = e.message }
 }
-function decQty(item) { cart.updateQty(item.drug.id, item.quantity - 1) }
+function decQty(item) { cart.updateQty(item.drug.id, item.unit?.id ?? null, item.quantity - 1) }
 
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 const showCheckout    = ref(false)
@@ -91,17 +203,18 @@ async function processCheckout() {
       metode_bayar: metode.value,
       catatan:      catatan.value || null,
       items: cart.items.map(i => ({
-        drug_id: i.drug.id, quantity: i.quantity, diskon: i.diskon || 0,
+        drug_id:      i.drug.id,
+        drug_unit_id: i.unit?.id ?? null,
+        quantity:     i.quantity,
+        diskon:       i.diskon || 0,
       })),
     })
     receipt.value = res.data.transaction
-    // refresh stock numbers in the catalog after sale
     await loadCatalog()
     cart.clearCart()
     showCheckout.value = false
     bayar.value = 0; diskonTotal.value = 0; catatan.value = ''
     showInvoice.value = true
-    // prepend to local history
     txHistory.value.unshift(receipt.value)
   } catch (e) {
     errorMsg.value = e.response?.data?.message || 'Transaksi gagal.'
@@ -119,7 +232,7 @@ const txHistory       = ref([])
 const txLoading       = ref(false)
 const txPage          = ref(1)
 const txTotalPages    = ref(1)
-const historyInvoice  = ref(null)  // transaction shown in history invoice drawer
+const historyInvoice  = ref(null)
 
 async function loadHistory(page = 1) {
   txLoading.value = true
@@ -139,7 +252,6 @@ async function openHistory() {
   if (!txHistory.value.length) await loadHistory()
 }
 
-// fetch full transaction detail (with items) then show invoice
 async function viewHistoryInvoice(tx) {
   try {
     const res = await api.get(`/transactions/${tx.id}`)
@@ -163,10 +275,48 @@ const metodeLabel = {
   tunai: 'Tunai', qris: 'QRIS',
   transfer: 'Transfer', kartu: 'Kartu',
 }
+
+// Helper: display label for cart item
+function itemSatuan(item) {
+  return item.unit?.satuan ?? item.drug.satuan ?? ''
+}
+function itemLabel(item) {
+  return item.unit?.label ?? item.drug.satuan ?? ''
+}
+function itemHarga(item) {
+  return item.unit ? Number(item.unit.harga_jual) : Number(item.drug.harga_jual)
+}
 </script>
 
 <template>
-  <div class="flex gap-4 h-[calc(100vh-8rem)]">
+  <div class="flex flex-col h-screen bg-gray-50 overflow-hidden">
+    <!-- Standalone Header -->
+    <header class="bg-primary-950 text-white px-6 py-3 flex items-center justify-between shadow-md flex-shrink-0">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+          A
+        </div>
+        <div>
+          <h1 class="font-bold text-sm leading-none">Kasir / POS</h1>
+          <p class="text-[10px] text-primary-300 mt-0.5">Apotek Algenz</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <div class="text-right hidden sm:block">
+          <p class="text-xs font-semibold leading-none text-white">{{ auth.user?.name }}</p>
+          <p class="text-[10px] text-primary-400 capitalize leading-none mt-1">{{ auth.user?.role_display || auth.user?.role }}</p>
+        </div>
+        <button @click="windowClose"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-lg transition-colors">
+          ✕ Tutup Kasir
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 p-4 overflow-hidden">
+      <div class="flex gap-4 h-full">
 
     <!-- ── LEFT: Drug Catalog ─────────────────────────────────────────────── -->
     <div class="flex-1 flex flex-col min-w-0">
@@ -235,7 +385,18 @@ const metodeLabel = {
             <p class="text-xs font-semibold text-gray-800 group-hover:text-primary-700 leading-snug mb-1 line-clamp-2">
               {{ drug.name }}
             </p>
-            <p class="text-[11px] font-bold text-primary-700 mt-auto">{{ formatRupiah(drug.harga_jual) }}</p>
+            <!-- Unit badges or single price -->
+            <div v-if="drug.units && drug.units.length > 0" class="mt-auto space-y-0.5">
+              <div v-for="u in drug.units.slice(0, 2)" :key="u.id"
+                class="flex items-center justify-between text-[10px]">
+                <span class="text-gray-500 font-medium">{{ u.label }}</span>
+                <span class="font-bold text-primary-700">{{ formatRupiah(u.harga_jual) }}</span>
+              </div>
+              <p v-if="drug.units.length > 2" class="text-[9px] text-primary-500 font-medium">
+                +{{ drug.units.length - 2 }} satuan lainnya…
+              </p>
+            </div>
+            <p v-else class="text-[11px] font-bold text-primary-700 mt-auto">{{ formatRupiah(drug.harga_jual) }}</p>
           </button>
         </div>
       </div>
@@ -254,24 +415,35 @@ const metodeLabel = {
           <span class="text-3xl mb-2">🛒</span>
           <p class="text-xs">Keranjang kosong</p>
         </div>
-        <div v-for="item in cart.items" :key="item.drug.id"
-          class="bg-gray-50 rounded-lg p-2.5 border border-gray-100">
-          <div class="flex items-start justify-between mb-1.5">
-            <p class="text-xs font-semibold text-gray-800 leading-tight flex-1 pr-1">{{ item.drug.name }}</p>
-            <button @click="cart.removeItem(item.drug.id)"
-              class="text-red-400 hover:text-red-600 text-xs leading-none flex-shrink-0">✕</button>
+        <div v-for="item in cart.items" :key="`${item.drug.id}-${item.unit?.id ?? 'def'}`"
+          @click="openItemConfig(item.drug, item)"
+          class="bg-gray-50 rounded-lg p-2.5 border border-gray-100 cursor-pointer hover:border-primary-300 transition-colors group/item">
+          <div class="flex items-start justify-between mb-1">
+            <div class="flex-1 pr-1">
+              <p class="text-xs font-semibold text-gray-800 leading-tight group-hover/item:text-primary-700 transition-colors">{{ item.drug.name }}</p>
+              <span class="text-[10px] font-medium text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded-full mt-0.5 inline-block">
+                {{ itemLabel(item) }}
+              </span>
+            </div>
+            <button @click.stop="cart.removeItem(item.drug.id, item.unit?.id ?? null)"
+              class="text-red-400 hover:text-red-600 text-xs leading-none flex-shrink-0 mt-0.5">✕</button>
           </div>
           <div class="flex items-center justify-between">
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-1" @click.stop>
               <button @click="decQty(item)"
                 class="w-5 h-5 rounded bg-gray-200 hover:bg-gray-300 text-xs font-bold flex items-center justify-center">−</button>
               <span class="text-xs font-bold w-6 text-center">{{ item.quantity }}</span>
               <button @click="incQty(item)"
                 class="w-5 h-5 rounded bg-gray-200 hover:bg-gray-300 text-xs font-bold flex items-center justify-center">+</button>
             </div>
-            <p class="text-xs font-bold text-primary-700">
-              {{ formatRupiah(item.drug.harga_jual * item.quantity - (item.diskon || 0)) }}
-            </p>
+            <div class="text-right">
+              <p v-if="item.diskon > 0" class="text-[9px] text-red-500 font-medium line-through">
+                {{ formatRupiah(itemHarga(item) * item.quantity) }}
+              </p>
+              <p class="text-xs font-bold text-primary-700">
+                {{ formatRupiah(itemHarga(item) * item.quantity - (item.diskon || 0)) }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -292,6 +464,132 @@ const metodeLabel = {
       </div>
     </div>
 
+    <!-- ── Item Configurator Modal ─────────────────────────────────────────── -->
+    <Transition name="modal">
+      <div v-if="showItemConfig && configDrug"
+        class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        @click.self="showItemConfig = false">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+          
+          <!-- Header with gradient -->
+          <div class="bg-gradient-to-r from-primary-700 to-primary-800 px-5 py-4 flex items-center justify-between">
+            <div>
+              <h3 class="text-white font-semibold text-base">
+                {{ isEditing ? 'Edit Item Keranjang' : 'Tambah Obat' }}
+              </h3>
+              <p class="text-primary-100 text-xs mt-0.5">{{ configDrug.name }} ({{ configDrug.kode_obat }})</p>
+            </div>
+            <button @click="showItemConfig = false" class="text-primary-200 hover:text-white text-xl">✕</button>
+          </div>
+
+          <!-- Body -->
+          <div class="p-5 space-y-4">
+            
+            <!-- Stock Information Badge -->
+            <div class="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-lg text-xs">
+              <span class="text-gray-500">Stok Tersedia:</span>
+              <span class="font-bold text-gray-800">
+                {{ configDrug.stok }} {{ configDrug.satuan }}
+              </span>
+            </div>
+
+            <!-- Unit Selector -->
+            <div>
+              <label class="form-label text-xs font-semibold text-gray-600 mb-1.5 block">Pilih Satuan</label>
+              <div class="grid grid-cols-1 gap-2">
+                <!-- Unit list -->
+                <button
+                  v-for="u in configDrug.units"
+                  :key="u.id"
+                  @click="selectConfigUnit(u)"
+                  type="button"
+                  class="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all text-left"
+                  :class="configUnit?.id === u.id 
+                    ? 'border-primary-500 bg-primary-50/50 text-primary-900 font-medium' 
+                    : 'border-gray-100 hover:border-gray-300 text-gray-700'"
+                >
+                  <div class="flex-1 min-w-0 pr-2">
+                    <p class="text-xs font-semibold">{{ u.label }}</p>
+                    <p class="text-[10px] text-gray-400">
+                      {{ u.satuan }} <span v-if="u.konversi > 1"> · isi {{ u.konversi }} {{ configDrug.satuan }}</span>
+                    </p>
+                  </div>
+                  <p class="font-bold text-primary-700 text-xs whitespace-nowrap">{{ formatRupiah(u.harga_jual) }}</p>
+                </button>
+
+                <!-- Default Price fallback -->
+                <button
+                  @click="selectConfigUnit(null)"
+                  type="button"
+                  class="flex items-center justify-between px-3 py-2.5 rounded-xl border-2 transition-all text-left"
+                  :class="configUnit === null 
+                    ? 'border-primary-500 bg-primary-50/50 text-primary-900 font-medium' 
+                    : 'border-gray-100 hover:border-gray-300 text-gray-700'"
+                >
+                  <div class="flex-1 min-w-0 pr-2">
+                    <p class="text-xs font-semibold">Harga Default</p>
+                    <p class="text-[10px] text-gray-400">{{ configDrug.satuan }} (Satuan Dasar)</p>
+                  </div>
+                  <p class="font-bold text-primary-700 text-xs whitespace-nowrap">{{ formatRupiah(configDrug.harga_jual) }}</p>
+                </button>
+              </div>
+            </div>
+
+            <!-- Quantity & Discount Grid -->
+            <div class="grid grid-cols-2 gap-4">
+              <!-- Quantity selector -->
+              <div>
+                <label class="form-label text-xs font-semibold text-gray-600 mb-1.5 block">Jumlah (Qty)</label>
+                <div class="flex items-center justify-between border-2 border-gray-100 rounded-xl px-2 py-1 bg-white">
+                  <button @click="decConfigQty" type="button"
+                    class="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 active:scale-95 text-gray-600 font-bold flex items-center justify-center transition-all">−</button>
+                  <input v-model.number="configQty" type="number" min="1" @input="validateConfigQty"
+                    class="w-12 text-center font-bold text-sm border-0 focus:ring-0 p-0 text-gray-800" />
+                  <button @click="incConfigQty" type="button"
+                    class="w-8 h-8 rounded-lg bg-gray-50 hover:bg-gray-100 active:scale-95 text-gray-600 font-bold flex items-center justify-center transition-all">+</button>
+                </div>
+              </div>
+
+              <!-- Discount input -->
+              <div>
+                <label class="form-label text-xs font-semibold text-gray-600 mb-1.5 block">Diskon Item (Rp)</label>
+                <div class="relative">
+                  <span class="absolute inset-y-0 left-3 flex items-center text-[10px] font-bold text-gray-400">Rp</span>
+                  <input v-model.number="configDiskon" type="number" min="0"
+                    class="form-input pl-8 w-full text-xs font-semibold" placeholder="0" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Subtotal Card -->
+            <div class="bg-gray-50 border border-gray-100 rounded-xl p-3.5 flex justify-between items-center">
+              <div>
+                <p class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Subtotal Item</p>
+                <p class="text-[10px] text-gray-400 mt-0.5">
+                  {{ configQty }} × {{ formatRupiah(configUnit ? configUnit.harga_jual : configDrug.harga_jual) }}
+                  <span v-if="configDiskon > 0" class="text-red-500"> - {{ formatRupiah(configDiskon) }}</span>
+                </p>
+              </div>
+              <p class="text-base font-extrabold text-primary-700">
+                {{ formatRupiah(Math.max((configUnit ? configUnit.harga_jual : configDrug.harga_jual) * configQty - configDiskon, 0)) }}
+              </p>
+            </div>
+
+            <!-- Footer Action Buttons -->
+            <div class="flex gap-3 pt-2">
+              <button @click="showItemConfig = false" type="button" class="btn-secondary flex-1 justify-center text-xs py-2">
+                Batal
+              </button>
+              <button @click="saveItemConfig" type="button" class="btn-primary flex-1 justify-center text-xs py-2">
+                {{ isEditing ? 'Simpan' : 'Tambah ke Keranjang' }}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- ── Checkout Modal ─────────────────────────────────────────────────── -->
     <Transition name="modal">
       <div v-if="showCheckout"
@@ -303,6 +601,19 @@ const metodeLabel = {
             <button @click="showCheckout = false" class="text-primary-200 hover:text-white text-xl">✕</button>
           </div>
           <div class="p-6 space-y-4">
+            <!-- Cart summary -->
+            <div class="bg-gray-50 rounded-xl p-3 space-y-1 text-xs max-h-36 overflow-y-auto">
+              <div v-for="item in cart.items" :key="`s-${item.drug.id}-${item.unit?.id}`"
+                class="flex justify-between text-gray-600">
+                <span class="truncate flex-1 mr-2">
+                  {{ item.drug.name }}
+                  <span class="text-primary-600 font-medium">({{ itemLabel(item) }})</span>
+                  × {{ item.quantity }}
+                </span>
+                <span class="font-semibold text-gray-800 whitespace-nowrap">{{ formatRupiah(itemHarga(item) * item.quantity) }}</span>
+              </div>
+            </div>
+
             <div class="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
               <div class="flex justify-between">
                 <span class="text-gray-600">Subtotal</span>
@@ -407,7 +718,10 @@ const metodeLabel = {
                 </div>
                 <div v-for="item in receipt.items" :key="item.id"
                   class="grid grid-cols-[1fr_auto_auto] gap-1 text-[10px] border-b border-dotted border-gray-200 pb-0.5">
-                  <span class="break-words">{{ item.drug_name }}</span>
+                  <span class="break-words">
+                    {{ item.drug_name }}
+                    <span v-if="item.satuan" class="text-gray-400">({{ item.satuan }})</span>
+                  </span>
                   <span class="text-right whitespace-nowrap">{{ item.quantity }}×{{ formatRupiah(item.harga_jual) }}</span>
                   <span class="text-right font-semibold whitespace-nowrap">{{ formatRupiah(item.subtotal) }}</span>
                 </div>
@@ -556,7 +870,10 @@ const metodeLabel = {
                 </div>
                 <div v-for="item in historyInvoice.items" :key="item.id"
                   class="grid grid-cols-[1fr_auto_auto] gap-1 text-[10px] border-b border-dotted border-gray-200 pb-0.5">
-                  <span class="break-words">{{ item.drug_name }}</span>
+                  <span class="break-words">
+                    {{ item.drug_name }}
+                    <span v-if="item.satuan" class="text-gray-400">({{ item.satuan }})</span>
+                  </span>
                   <span class="text-right whitespace-nowrap">{{ item.quantity }}×{{ formatRupiah(item.harga_jual) }}</span>
                   <span class="text-right font-semibold whitespace-nowrap">{{ formatRupiah(item.subtotal) }}</span>
                 </div>
@@ -595,7 +912,9 @@ const metodeLabel = {
       </div>
     </Transition>
 
+    </div>
   </div>
+</div>
 </template>
 
 <style scoped>

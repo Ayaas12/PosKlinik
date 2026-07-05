@@ -221,6 +221,7 @@ const selectedDrugName = computed(() => {
             <tr>
               <th>Nomor Batch</th>
               <th>Nama Obat</th>
+              <th>Rak</th>
               <th>Supplier</th>
               <th>Tgl Terima</th>
               <th>Tgl Kadaluarsa</th>
@@ -231,10 +232,10 @@ const selectedDrugName = computed(() => {
           </thead>
           <tbody>
             <tr v-if="loading" v-for="i in 8" :key="i">
-              <td colspan="8"><div class="h-4 bg-gray-100 animate-pulse rounded"></div></td>
+              <td colspan="9"><div class="h-4 bg-gray-100 animate-pulse rounded"></div></td>
             </tr>
             <tr v-else-if="batches.length === 0">
-              <td colspan="8" class="text-center py-12 text-gray-400">
+              <td colspan="9" class="text-center py-12 text-gray-400">
                 <div class="text-4xl mb-2">📦</div>
                 <p>Belum ada batch tercatat.</p>
               </td>
@@ -246,6 +247,12 @@ const selectedDrugName = computed(() => {
               <td>
                 <p class="font-medium text-gray-900">{{ b.drug?.name }}</p>
                 <p class="text-xs text-gray-400">{{ b.drug?.kode_obat }}</p>
+              </td>
+              <td>
+                <span v-if="b.drug?.lokasi_rak" class="font-medium text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200">
+                  {{ b.drug.lokasi_rak }}
+                </span>
+                <span v-else class="text-gray-400 text-xs">—</span>
               </td>
               <td class="text-sm text-gray-600">{{ b.supplier?.name || '—' }}</td>
               <td class="text-sm">{{ formatDate(b.tanggal_diterima) }}</td>
@@ -398,6 +405,7 @@ const selectedDrugName = computed(() => {
           <!-- Drug summary bar -->
           <div v-if="historyDrug" class="bg-blue-50 px-6 py-3 border-b border-blue-100 flex gap-4 text-sm">
             <span class="text-blue-800">Kode: <strong>{{ historyDrug.drug?.kode_obat }}</strong></span>
+            <span v-if="historyDrug.drug?.lokasi_rak" class="text-amber-800">Rak: <strong>{{ historyDrug.drug?.lokasi_rak }}</strong></span>
           </div>
 
           <!-- Batch list -->

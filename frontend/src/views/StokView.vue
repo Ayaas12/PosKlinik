@@ -33,6 +33,15 @@ const movementsPage     = ref(1)
 const movementsTotalPgs = ref(1)
 const loadingMovements  = ref(false)
 
+// ─── Drug Unit Pricing ────────────────────────────────────────────────────────
+const drugUnits       = ref([])   // units for the drug currently being edited
+const loadingUnits    = ref(false)
+const showUnitForm    = ref(false)
+const unitFormMode    = ref('add') // add | edit
+const editingUnit     = ref(null)
+const unitForm        = ref({ label: '', satuan: 'strip', konversi: 1, harga_jual: '', is_default: false })
+const unitFormError   = ref('')
+const savingUnit      = ref(false)
 // ─── Low-stock summary ─────────────────────────────────────────────────────────
 const lowStockList  = ref([])
 const showLowStock  = ref(false)
@@ -92,7 +101,7 @@ async function openMovements(drug, page = 1) {
 function openAdd() {
   form.value = {
     name: '', kode_obat: '', category_id: '', harga_beli: '', harga_jual: '',
-    stok: '', stok_minimum: 10, satuan: 'strip', tanggal_kadaluarsa: '', description: '',
+    stok: '', stok_minimum: 10, satuan: 'strip', tanggal_kadaluarsa: '', lokasi_rak: '', description: '',
   }
   formError.value = ''
   modalMode.value = 'add'
@@ -104,6 +113,14 @@ function openEdit(drug) {
   formError.value = ''
   modalMode.value = 'edit'
   showModal.value = true
+  // Load units for this drug
+  drugUnits.value = []
+  showUnitForm.value = false
+  if (drug.units) {
+    drugUnits.value = [...drug.units]
+  } else {
+    loadUnits(drug.id)
+  }
 }
 
 function openAdjust(drug) {
@@ -126,6 +143,8 @@ async function saveForm() {
       await api.put(`/drugs/${form.value.id}`, form.value)
     }
     showModal.value = false
+    drugUnits.value = []
+    showUnitForm.value = false
     await fetchDrugs(currentPage.value)
     await fetchLowStock()
   } catch (e) {
@@ -173,6 +192,69 @@ function onSearch() {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const satuanOptions = ['strip', 'kapsul', 'botol', 'sachet', 'tube', 'ampul', 'pcs']
+
+// ─── Drug Unit Management helpers ─────────────────────────────────────────────
+async function loadUnits(drugId) {
+  loadingUnits.value = true
+  try {
+    const res = await api.get(`/drugs/${drugId}/units`)
+    drugUnits.value = res.data
+  } catch (_) {}
+  finally { loadingUnits.value = false }
+}
+
+function openAddUnit() {
+  unitForm.value = { label: '', satuan: satuanOptions[0], konversi: 1, harga_jual: '', is_default: false }
+  unitFormError.value = ''
+  unitFormMode.value = 'add'
+  editingUnit.value = null
+  showUnitForm.value = true
+}
+
+function openEditUnit(unit) {
+  unitForm.value = { ...unit }
+  unitFormError.value = ''
+  unitFormMode.value = 'edit'
+  editingUnit.value = unit
+  showUnitForm.value = true
+}
+
+async function saveUnit() {
+  if (!form.value.id) return // only available in edit mode
+  savingUnit.value = true
+  unitFormError.value = ''
+  try {
+    if (unitFormMode.value === 'add') {
+      const res = await api.post(`/drugs/${form.value.id}/units`, unitForm.value)
+      drugUnits.value.push(res.data.unit)
+    } else {
+      const res = await api.put(`/drugs/${form.value.id}/units/${editingUnit.value.id}`, unitForm.value)
+      const idx = drugUnits.value.findIndex(u => u.id === editingUnit.value.id)
+      if (idx >= 0) drugUnits.value[idx] = res.data.unit
+    }
+    showUnitForm.value = false
+    // Refresh catalog data
+    await fetchDrugs(currentPage.value)
+  } catch (e) {
+    const errs = e.response?.data?.errors
+    unitFormError.value = errs
+      ? Object.values(errs).flat().join(' | ')
+      : (e.response?.data?.message || 'Gagal menyimpan unit.')
+  } finally {
+    savingUnit.value = false
+  }
+}
+
+async function deleteUnit(unit) {
+  if (!confirm(`Hapus unit "${unit.label}"?`)) return
+  try {
+    await api.delete(`/drugs/${form.value.id}/units/${unit.id}`)
+    drugUnits.value = drugUnits.value.filter(u => u.id !== unit.id)
+    await fetchDrugs(currentPage.value)
+  } catch (e) {
+    alert(e.response?.data?.message || 'Gagal menghapus unit.')
+  }
+}
 
 function movementTypeLabel(type) {
   return { masuk: 'Masuk', keluar: 'Keluar', penyesuaian: 'Penyesuaian', retur: 'Retur' }[type] ?? type
@@ -287,6 +369,7 @@ const lowStockCount = computed(() => lowStockList.value.length)
               <th>Kode</th>
               <th>Nama Obat</th>
               <th>Kategori</th>
+              <th>Rak</th>
               <th>Harga Jual</th>
               <th>Stok</th>
               <th>Kadaluarsa</th>
@@ -296,10 +379,10 @@ const lowStockCount = computed(() => lowStockList.value.length)
           </thead>
           <tbody>
             <tr v-if="loading" v-for="i in 8" :key="i">
-              <td colspan="8"><div class="h-4 bg-gray-100 animate-pulse rounded"></div></td>
+              <td colspan="9"><div class="h-4 bg-gray-100 animate-pulse rounded"></div></td>
             </tr>
             <tr v-else-if="drugs.length === 0">
-              <td colspan="8" class="text-center py-12 text-gray-400">
+              <td colspan="9" class="text-center py-12 text-gray-400">
                 <div class="text-4xl mb-2">💊</div>
                 <p>Tidak ada obat ditemukan.</p>
               </td>
@@ -311,6 +394,12 @@ const lowStockCount = computed(() => lowStockList.value.length)
                 <p class="text-xs text-gray-400">{{ drug.satuan }}</p>
               </td>
               <td><span class="badge-blue">{{ drug.category?.name || '—' }}</span></td>
+              <td>
+                <span v-if="drug.lokasi_rak" class="font-medium text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-200">
+                  {{ drug.lokasi_rak }}
+                </span>
+                <span v-else class="text-gray-400 text-xs">—</span>
+              </td>
               <td class="font-semibold text-primary-700">{{ formatRupiah(drug.harga_jual) }}</td>
               <td>
                 <span class="font-bold"
@@ -429,12 +518,106 @@ const lowStockCount = computed(() => lowStockList.value.length)
                 <label class="form-label">Tanggal Kadaluarsa</label>
                 <input v-model="form.tanggal_kadaluarsa" type="date" class="form-input" />
               </div>
+              <div>
+                <label class="form-label">Lokasi Rak</label>
+                <input v-model="form.lokasi_rak" type="text" class="form-input" placeholder="cth: Rak A-01" />
+              </div>
               <div class="col-span-2">
                 <label class="form-label">Keterangan</label>
                 <textarea v-model="form.description" class="form-input" rows="2"
                   placeholder="Dosis, indikasi, dll."></textarea>
               </div>
             </div>
+
+            <!-- ── Variasi Harga / Satuan (edit mode only) ─────────────────── -->
+            <div v-if="modalMode === 'edit'" class="border border-indigo-200 rounded-xl overflow-hidden">
+              <div class="bg-indigo-50 px-4 py-2.5 flex items-center justify-between border-b border-indigo-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-indigo-500">🏷️</span>
+                  <span class="font-semibold text-indigo-800 text-sm">Variasi Harga / Satuan</span>
+                  <span class="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-600 rounded-full font-medium">{{ drugUnits.length }} unit</span>
+                </div>
+                <button @click="openAddUnit" type="button"
+                  class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg font-medium transition-colors">
+                  + Tambah Unit
+                </button>
+              </div>
+
+              <!-- Loading -->
+              <div v-if="loadingUnits" class="p-4 text-xs text-gray-400 text-center animate-pulse">Memuat unit...</div>
+
+              <!-- No units -->
+              <div v-else-if="drugUnits.length === 0 && !showUnitForm" class="px-4 py-3 text-xs text-gray-400 text-center">
+                Belum ada variasi harga. Klik "+ Tambah Unit" untuk menambahkan.
+              </div>
+
+              <!-- Unit list -->
+              <div v-if="drugUnits.length > 0" class="divide-y divide-gray-100">
+                <div v-for="u in drugUnits" :key="u.id"
+                  class="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition-colors">
+                  <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div>
+                      <p class="text-sm font-semibold text-gray-800">{{ u.label }}</p>
+                      <p class="text-[10px] text-gray-400">
+                        {{ u.satuan }}
+                        <span v-if="u.konversi > 1"> · isi {{ u.konversi }} satuan dasar</span>
+                        <span v-if="u.is_default" class="ml-1 text-green-600 font-medium">★ Default</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-3 flex-shrink-0">
+                    <span class="font-bold text-indigo-700 text-sm whitespace-nowrap">{{ u.harga_jual ? Number(u.harga_jual).toLocaleString('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }) : 'Rp 0' }}</span>
+                    <div class="flex gap-1">
+                      <button @click="openEditUnit(u)" type="button"
+                        class="text-xs px-2 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded font-medium">✏️</button>
+                      <button @click="deleteUnit(u)" type="button"
+                        class="text-xs px-2 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded font-medium">✕</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Inline unit form -->
+              <Transition name="expand">
+                <div v-if="showUnitForm" class="border-t border-indigo-100 bg-indigo-50/50 p-4 space-y-3">
+                  <p class="text-xs font-semibold text-indigo-700">{{ unitFormMode === 'add' ? 'Tambah Unit Baru' : 'Edit Unit' }}</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div class="col-span-2">
+                      <label class="form-label text-xs">Label Tampilan *</label>
+                      <input v-model="unitForm.label" type="text" class="form-input text-sm"
+                        placeholder="cth: Strip, Box (10 Strip), Botol 60ml" />
+                    </div>
+                    <div>
+                      <label class="form-label text-xs">Satuan *</label>
+                      <select v-model="unitForm.satuan" class="form-select text-sm">
+                        <option v-for="s in satuanOptions" :key="s" :value="s">{{ s }}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="form-label text-xs">Isi (konversi ke satuan dasar) *</label>
+                      <input v-model.number="unitForm.konversi" type="number" min="1" class="form-input text-sm"
+                        placeholder="1" />
+                    </div>
+                    <div class="col-span-2">
+                      <label class="form-label text-xs">Harga Jual (Rp) *</label>
+                      <input v-model.number="unitForm.harga_jual" type="number" min="0" class="form-input text-sm" />
+                    </div>
+                    <div class="col-span-2 flex items-center gap-2">
+                      <input v-model="unitForm.is_default" type="checkbox" id="unit-default" class="rounded" />
+                      <label for="unit-default" class="text-xs text-gray-600">Jadikan unit default di kasir</label>
+                    </div>
+                  </div>
+                  <div v-if="unitFormError" class="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{{ unitFormError }}</div>
+                  <div class="flex gap-2">
+                    <button @click="showUnitForm = false" type="button" class="btn-secondary flex-1 justify-center text-xs py-1.5">Batal</button>
+                    <button @click="saveUnit" :disabled="savingUnit" type="button" class="btn-primary flex-1 justify-center text-xs py-1.5">
+                      {{ savingUnit ? 'Menyimpan...' : 'Simpan Unit' }}
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+            </div>
+
             <div class="flex gap-3 pt-2">
               <button @click="showModal = false" class="btn-secondary flex-1 justify-center">Batal</button>
               <button @click="saveForm" :disabled="saving" class="btn-primary flex-1 justify-center">

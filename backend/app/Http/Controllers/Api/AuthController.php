@@ -11,9 +11,9 @@ use Illuminate\Validation\ValidationException;
 class AuthController extends Controller
 {
     /**
-     * Login – returns user data. Auth cookie is handled by Sanctum automatically.
-     * SECURITY: No credentials in URL params. No tokens in response body.
-     * Rate limiting: applied via throttle:api middleware in routes.
+     * Login – authenticates user and returns a Sanctum API token.
+     * SECURITY: No credentials in URL params. Token stored client-side.
+     * Rate limiting: applied via throttle:10,1 middleware in routes.
      */
     public function login(Request $request)
     {
@@ -36,27 +36,30 @@ class AuthController extends Controller
             return response()->json(['message' => 'Akun tidak aktif. Hubungi administrator.'], 403);
         }
 
-        $request->session()->regenerate();
+        // Revoke all old tokens for this user (single session policy)
+        $user->tokens()->delete();
+
+        // Create a new token
+        $token = $user->createToken('pos-session')->plainTextToken;
 
         return response()->json([
-            'user' => [
-                'id'    => $user->id,
-                'name'  => $user->name,
-                'email' => $user->email,
-                'role'  => $user->role?->name,
+            'token' => $token,
+            'user'  => [
+                'id'           => $user->id,
+                'name'         => $user->name,
+                'email'        => $user->email,
+                'role'         => $user->role?->name,
                 'role_display' => $user->role?->display_name,
             ],
         ]);
     }
 
     /**
-     * Logout – invalidate session and revoke all Sanctum tokens.
+     * Logout – revoke the current token.
      */
     public function logout(Request $request)
     {
-        Auth::guard('web')->logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Berhasil logout.']);
     }

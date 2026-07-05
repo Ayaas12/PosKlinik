@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
             CategorySeeder::class,
             SupplierSeeder::class,
             DrugSeeder::class,
+            DrugBatchSeeder::class,
             TransactionSeeder::class,
         ]);
     }

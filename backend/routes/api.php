@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\BatchController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DrugController;
+use App\Http\Controllers\Api\DrugUnitController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\TransactionController;
@@ -42,6 +43,12 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/drugs/{drug}/movements', [DrugController::class, 'movements']);
     Route::apiResource('/drugs', DrugController::class);
     Route::post('/drugs/{drug}/adjust-stock', [DrugController::class, 'adjustStock']);
+
+    // Drug Unit Pricing (per-drug unit variants)
+    Route::get('/drugs/{drug}/units',                     [DrugUnitController::class, 'index']);
+    Route::post('/drugs/{drug}/units',                    [DrugUnitController::class, 'store']);
+    Route::put('/drugs/{drug}/units/{unit}',              [DrugUnitController::class, 'update']);
+    Route::delete('/drugs/{drug}/units/{unit}',           [DrugUnitController::class, 'destroy']);
 
     // Batch management
     Route::get('/batches/summary',        [BatchController::class, 'summary']);

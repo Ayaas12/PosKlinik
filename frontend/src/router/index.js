@@ -9,6 +9,12 @@ const routes = [
     meta: { requiresGuest: true },
   },
   {
+    path: '/kasir',
+    name: 'Kasir',
+    component: () => import('@/views/KasirView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/',
     component: () => import('@/components/AppLayout.vue'),
     meta: { requiresAuth: true },
@@ -21,11 +27,6 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/DashboardView.vue'),
-      },
-      {
-        path: 'kasir',
-        name: 'Kasir',
-        component: () => import('@/views/KasirView.vue'),
       },
       {
         path: 'stok',
@@ -77,6 +78,15 @@ router.beforeEach((to, _from, next) => {
     return next('/dashboard')
   }
   next()
+})
+
+// Handle global 401 events emitted by the API interceptor.
+// Using the router (instead of window.location.href) avoids a full page
+// reload that would wipe the Pinia store state.
+window.addEventListener('auth:unauthorized', () => {
+  const auth = useAuthStore()
+  auth.user = null
+  router.push('/login')
 })
 
 export default router

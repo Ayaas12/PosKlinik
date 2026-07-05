@@ -17,7 +17,7 @@ class BatchController extends Controller
     public function index(Request $request)
     {
         $query = DrugBatch::with([
-            'drug:id,kode_obat,name,satuan',
+            'drug:id,kode_obat,name,satuan,lokasi_rak',
             'supplier:id,name',
             'receivedBy:id,name',
         ])
@@ -121,7 +121,7 @@ class BatchController extends Controller
                                     ($validated['catatan'] ? ' — ' . $validated['catatan'] : ''),
             ]);
 
-            return $batch->load(['drug:id,kode_obat,name,stok,satuan', 'supplier:id,name', 'receivedBy:id,name']);
+            return $batch->load(['drug:id,kode_obat,name,stok,satuan,lokasi_rak', 'supplier:id,name', 'receivedBy:id,name']);
         });
 
         return response()->json([
@@ -136,7 +136,7 @@ class BatchController extends Controller
     public function show(DrugBatch $batch)
     {
         return response()->json(
-            $batch->load(['drug:id,kode_obat,name,stok,satuan', 'supplier:id,name', 'receivedBy:id,name'])
+            $batch->load(['drug:id,kode_obat,name,stok,satuan,lokasi_rak', 'supplier:id,name', 'receivedBy:id,name'])
         );
     }
 

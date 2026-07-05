@@ -2,7 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({
   baseURL: '/api',
-  withCredentials: true,
+  withCredentials: false,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -10,20 +10,32 @@ const api = axios.create({
   },
 })
 
-// Request interceptor – nothing needed since we use cookie-based auth (Sanctum)
+// Request interceptor – attach Bearer token from localStorage if available
 api.interceptors.request.use(
-  (config) => config,
+  (config) => {
+    const token = localStorage.getItem('pos_token')
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`
+    }
+    return config
+  },
   (error) => Promise.reject(error)
 )
 
 // Response interceptor – redirect to login on 401
+// Skip the redirect if the request was the login endpoint itself
+// (let the login form handle its own errors)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Clear local session and redirect to login
+    const isLoginRequest = error.config?.url?.includes('/login')
+    if (error.response?.status === 401 && !isLoginRequest) {
+      // Clear local session and signal the app to navigate to login
       localStorage.removeItem('pos_user')
-      window.location.href = '/login'
+      localStorage.removeItem('pos_token')
+      // Use a custom event so the Vue router handles navigation
+      // (avoids full page reload that wipes Pinia store)
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'))
     }
     return Promise.reject(error)
   }

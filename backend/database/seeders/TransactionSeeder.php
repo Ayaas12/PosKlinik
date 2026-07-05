@@ -13,6 +13,11 @@ class TransactionSeeder extends Seeder
 {
     public function run(): void
     {
+        // Idempotency guard — skip if transactions already exist (e.g. container restart)
+        if (Transaction::exists()) {
+            return;
+        }
+
         $kasir = User::whereHas('role', fn($q) => $q->where('name', 'kasir'))->first();
         $drugs = Drug::where('is_active', true)->get();
         if (!$kasir || $drugs->isEmpty()) {

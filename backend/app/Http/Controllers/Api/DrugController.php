@@ -13,7 +13,7 @@ class DrugController extends Controller
 {
     public function index(Request $request)
     {
-        $query = Drug::with(['category:id,name', 'supplier:id,name'])
+        $query = Drug::with(['category:id,name', 'supplier:id,name', 'units'])
             ->when($request->search, fn($q) =>
                 $q->where(fn($q) =>
                     $q->where('name', 'like', '%' . $request->search . '%')
@@ -199,7 +199,7 @@ class DrugController extends Controller
     {
         $query = $request->validate(['q' => ['required', 'string', 'min:1', 'max:100']])['q'];
 
-        $drugs = Drug::with('category:id,name')
+        $drugs = Drug::with(['category:id,name', 'units'])
             ->where('is_active', true)
             ->where(fn($q) =>
                 $q->where('name', 'like', '%' . $query . '%')

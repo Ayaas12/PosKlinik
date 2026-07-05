@@ -12,7 +12,7 @@ const route = useRoute()
 const navItems = computed(() => {
   const all = [
     { to: '/dashboard', icon: '📊', label: 'Dashboard', roles: ['admin', 'apoteker', 'kasir'] },
-    { to: '/kasir', icon: '🛒', label: 'Kasir / POS', roles: ['admin', 'apoteker', 'kasir'] },
+    { to: '/kasir', icon: '🛒', label: 'Kasir / POS', roles: ['admin', 'apoteker', 'kasir'], popup: true },
     { to: '/stok',     icon: '💊', label: 'Manajemen Stok',  roles: ['admin', 'apoteker'] },
     { to: '/batch',    icon: '📦', label: 'Manajemen Batch', roles: ['admin', 'apoteker'] },
     { to: '/laporan', icon: '📈', label: 'Laporan', roles: ['admin', 'apoteker'] },
@@ -23,6 +23,19 @@ const navItems = computed(() => {
 
 function isActive(to) {
   return route.path.startsWith(to)
+}
+
+function openPopup(to) {
+  const width = window.screen.width * 0.95;
+  const height = window.screen.height * 0.90;
+  const left = (window.screen.width - width) / 2;
+  const top = (window.screen.height - height) / 2;
+  
+  window.open(
+    to,
+    'KasirPOS',
+    `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes`
+  );
 }
 </script>
 
@@ -45,20 +58,34 @@ function isActive(to) {
 
     <!-- Navigation -->
     <nav class="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-      <RouterLink
-        v-for="item in navItems"
-        :key="item.to"
-        :to="item.to"
-        class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group"
-        :class="isActive(item.to)
-          ? 'bg-primary-600 text-white shadow-sm'
-          : 'text-primary-300 hover:bg-primary-800 hover:text-white'"
-      >
-        <span class="text-lg flex-shrink-0">{{ item.icon }}</span>
-        <Transition name="fade">
-          <span v-if="open" class="whitespace-nowrap">{{ item.label }}</span>
-        </Transition>
-      </RouterLink>
+      <template v-for="item in navItems" :key="item.to">
+        <!-- Standalone Popup link -->
+        <button
+          v-if="item.popup"
+          @click="openPopup(item.to)"
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group text-primary-300 hover:bg-primary-800 hover:text-white text-left animate-none"
+        >
+          <span class="text-lg flex-shrink-0">{{ item.icon }}</span>
+          <Transition name="fade">
+            <span v-if="open" class="whitespace-nowrap">{{ item.label }}</span>
+          </Transition>
+        </button>
+
+        <!-- Standard Router link -->
+        <RouterLink
+          v-else
+          :to="item.to"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group"
+          :class="isActive(item.to)
+            ? 'bg-primary-600 text-white shadow-sm'
+            : 'text-primary-300 hover:bg-primary-800 hover:text-white'"
+        >
+          <span class="text-lg flex-shrink-0">{{ item.icon }}</span>
+          <Transition name="fade">
+            <span v-if="open" class="whitespace-nowrap">{{ item.label }}</span>
+          </Transition>
+        </RouterLink>
+      </template>
     </nav>
 
     <!-- User info at bottom -->

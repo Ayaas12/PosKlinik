@@ -12,9 +12,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Sanctum stateful API middleware for SPA (cookie-based auth)
-        $middleware->statefulApi();
-
         // Trust the Vite dev server and production origins
         $middleware->trustHosts(at: [
             'localhost',
